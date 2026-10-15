@@ -1,0 +1,89 @@
+KNOWN_ISSUES - RANKED BY Severity
+==================================
+
+SEVERITY 1: FATAL (Player cannot progress or game is unplayable)
+----------------------------------------------------------------
+None identified after fixes (L1 Cloudflare was the only fatal issue)
+
+SEVERITY 2: MAJOR (Gameplay significantly impaired)
+-----------------------------------------------------
+Issue: L5 Legacy pickup coordinate scaling
+Severity: MAJOR
+Location: makeStateBody function, legacy pickup definitions
+Description: Legacy pickups in makeStateBody are not divided by 0.39 for the 2.5641× scale factor
+             while player and enemies are. This may cause pickups to be unreachable or inaccessible.
+Finding: From briefing - "Legacy pickups in makeStateBody are not divided by 0.39 (player and enemies are). Check relevance."
+Status: NEEDS DECISION
+Action Required: 
+  1. Analyze if legacy pickups are actually placed in the scaled world
+  2. Determine if unscaled positions cause void falls or unreachable pickups
+  3. Fix if confirmed as defect (divide positions by 0.39)
+  4. Or report as intentional design if pickups are pre-scaled elsewhere
+
+SEVERITY 3: MINOR (Noticeable but doesn't block gameplay)
+------------------------------------------------------------
+Issue: L3 WORLD.extent vs playableExtent scaling mismatch
+Severity: MINOR
+Location: WORLD extent properties in buildWorld
+Description: WORLD.extent {x:±52, z:±57} is unscaled while playableExtent {x:±125.64, z:-125.64..51.28} 
+             is scaled by 2.5641. This inconsistency exists in the world data.
+Finding: extent only used in survey() function for informational display, never for gameplay bounds
+Status: REPORTED (not a defect - extent only informational)
+Action Required: None (by design - extent shows original model bounds)
+
+Issue: L4 BUILD/geometryRevision location mismatch
+Severity: MINOR
+Location: BUILD and geometryRevision string values
+Description: BUILD and geometryRevision strings reference "central-spawn" but actual spawn is 
+             in south shelter at (1.28, 0, -114.10) - 11.5u from south edge, 73u from C-17
+Finding: Phase 20.4/20.3 label drift also present in comments and footer
+Status: REPORTED (out of scope - spawn relocation separate phase per briefing)
+Action Required: None (per out of scope instructions)
+
+Issue: Phase version label drift
+Severity: MINOR
+Location: Header comment (Phase 20.4), menu footer (Phase 20.3), BUILD string (20.5)
+Description: Three different phase labels present in file
+Status: REPORTED (do not relabel per briefing)
+Action Required: None
+
+SEVERITY 4: COSMETIC (Visual/UI issues)
+----------------------------------------
+None identified (L6 key mismatch already fixed)
+
+NOT SPECIFIED / NEEDS DECISION
+------------------------------
+Issue: Director enemy spawning system (L2 extended analysis)
+Description: While spawn validity is fixed, the briefing notes several other concerns:
+  - Uses Math.random (not seeded RNG)
+  - Skipped by API.step/simulate (for deterministic checks)
+  - Wakes dormant S-04/S-11 simultaneously
+  - Overwrites 'inert' state
+  - No cap on spawned enemies
+  - Dead enemies never pruned
+  - Missing: floodModel, stationBreach, entered, deadAt, route
+Description contradictions: In-game text says "no reinforcements"
+Status: NEEDS DECISION
+Action Required: Determine if director is intended feature or debug code to be removed entirely
+
+Issue: Headless mode unreachable
+Description: headlessMode variable is never set to true
+Status: DESIGN - agent harness not reachable from browser
+
+Issue: API object unreachable
+Description: API object exists but never referenced or exposed
+Status: DESIGN - agent harness not reachable
+
+Issue: About 100KB multiplayer code unreachable
+Description: party stack, buildPurposeMap have zero call sites
+Status: DESIGN - unreachable code
+
+ISSUE COUNT SUMMARY
+===================
+FATAL:    0
+MAJOR:    1 (L5 legacy pickups - NEEDS DECISION)
+MINOR:    2 (L3 extent, L4 spawn location - REPORTED)
+COSMETIC: 0
+NEEDS DECISION: 2 (L5 pickup scaling fix or design, Director system analysis)
+
+TOTAL KNOWN ISSUES: 5

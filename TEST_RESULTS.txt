@@ -1,0 +1,106 @@
+TEST_RESULTS
+============
+
+TEST SUITE: Baseline Verification
+-----------------------------------
+Test: File size verification
+Result: PASS
+Evidence: File size 4,048,472 bytes (expected ~4,047,079 for parent with Cloudflare)
+
+Test: Line count verification
+Result: PASS  
+Evidence: 77 lines (76 content lines + 1 ending line without Cloudflare)
+
+Test: JavaScript syntax check
+Result: PASS
+Evidence: node --check validates successfully
+
+Test: Sentinel preservation
+Result: PASS /id="ls-end" hidden> present
+Result: PASS <!-- LAST-SIGNAL-CHANNEL-COMPLETE --> present
+
+Test: Attribution preservation
+Result: PASS jameslucino117 Flood attribution present
+Result: PASS Katydid city attribution present
+
+TEST SUITE: Protected Items Verification
+----------------------------------------
+Test: Solo-only start preserved
+Result: PASS - No multiplayer start path enabled
+
+Test: Channel interaction at C-17 only
+Result: PASS - C-17 terminal check unchanged
+
+Test: Save/LS5 continuity
+Result: PASS - Key names and formats unchanged
+
+Test: Offline single file
+Result: PASS - No external requests after Cloudflare removal
+
+Test: GBE weapon behavior unchanged
+Result: NOT RUN - Requires real browser testing
+
+Test: Silicon Life enemies unchanged
+Result: NOT RUN - Requires real browser testing
+
+Test: Attribution comments intact
+Result: PASS
+
+Test: Sentinels intact
+Result: PASS
+
+Test: Maintainer contact preserved
+Result: NOT RUN
+
+TEST SUITE: Defect Fixes Verification
+--------------------------------------
+Test L1: Cloudflare removal
+Result: PASS
+Evidence: grep 'cdn-cgi/challenge-platform' returns no matches
+
+Test L2: Spawn validation fix
+Result: PASS
+Evidence: 
+  - grep 'F=floorAt(X,Z)' found in script
+  - grep 'WORLD.playableExtent' found in script  
+  - grep 'while(e<20' found in script
+  - grep 'y:0,z:s.p.z' NOT FOUND (bug fixed)
+
+Test L6: Key mismatch fix
+Result: PASS
+Evidence: grep 'Z / T / X' found in HTML
+         grep 'Z / T / G' NOT FOUND (bug fixed)
+
+TEST SUITE: Unreachable Code Verification
+-------------------------------------------
+Test L7: frame() try/catch
+Result: NOT A DEFECT - frame() already has try/catch
+
+Test L8: party-* DOM ids
+Result: NOT A DEFECT - All party-* DOM ids exist in HTML
+
+TEST SUITE: Static Analysis
+---------------------------
+Test: Brace balance
+Result: PASS (2539 open, 2539 close)
+
+Test: Undefined/null access
+Result: NOT RUN - Requires full codebase analysis
+
+Test: NaN propagation
+Result: PASS - No obvious NaN sources in fixed spawn code
+
+TEST SUITE: Scale Verification
+-------------------------------
+Test: extent vs playableExtent
+Result: REPORTED - extent unscaled, playableExtent scaled; extent only used in survey()
+Evidence: survey() returns extent for informational display only
+
+TEST SUITE: Missing Verification (require human testing)
+---------------------------------------------------------
+Movement: requires real KeyboardEvents through normal controller
+Walking surfaces: requires real player navigation testing  
+Felt scale: requires human eye-height confirmation at spawn
+Audio: requires real browser audio capability
+Pointer lock: requires user interaction
+Save/load: requires game state persistence testing
