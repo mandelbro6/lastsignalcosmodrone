@@ -94,6 +94,114 @@ Minor, but `texStorage` is faster and lets the driver optimize the allocation. O
 
 ---
 
+## PART 0B — RUNTIME-VERIFIED FINDINGS (builder's Playwright/SwiftShader measurements)
+
+These are now **measured**, not inferred. They include the single largest visual defect in the game.
+
+### R1. **Light leaks through walls — only 1 of 12 sampled lights is shadowed** ← BIGGEST DEFECT
+`sh/FS.glsl`, main light loop:
+```glsl
+sh = i==0 ? mix(.10,1.,shadowPCF(uKeyShadow,uKeyVP,vP,Ng,L)) : 1.
+col += cookTorrance(base,metal,rough,N,V,L,uLColor[i]*radiance*sh);
+```
+**Only light index 0 gets a shadow.** The other 11 contribute with `sh = 1.0` — they shine straight
+through concrete walls. The render loop picks the 12 nearest/strongest, so most rooms are lit by lamps
+in *other* rooms.
+
+Builder's leak test (`leak.py`, 578 sampled nav nodes, `canSee()` raycast against `WORLD.colliders`):
+```
+lights: 25   radii: [17,17,17,17,17,17,11,11,11,32,32,7,17,17,17,7,7,20,20,20,12,12,34,30,7]
+powers:  [42,42,42,42,42,42,26,26,40,130,130,13,52,52,52,13,13,55,55,55,55,55,180,170,13]
+samplePoints: 578   pointsWithLight: 577
+pointsWithMoreThan25pctThroughWall: 260        <-- 45% of lit points
+medianLeakFraction: 0.130
+p90LeakFraction: 1.0                          <-- at 10% of points, 100% of light comes through walls
+lightContribsTotal: 2106   lightContribsBlocked: 1034   <-- 49% occluded and STILL APPLIED
+```
+**49% of all light contributions at sampled points come from lamps behind walls, and the shader
+applies every one at full strength.** This is why the facility reads flat and evenly lit despite
+having 25 individual lamps with distinct radii and powers.
+
+**Fix — pick one, ascending cost:**
+- **(a) Cheapest, biggest win — per-light 2D occlusion grid.** The facility is essentially horizontal
+  (26 zones; `WORLD.floors` has x0/x1/z0/z1 + y + optional `axis` ramps). Bake at load, for each of
+  the 25 lights, a low-res XZ visibility grid (extent x[-78,104] z[-19,97] → ~2 m cells = 91×58 =
+  5,278 cells/light; 25 lights = 132 KB). Populate by DDA-raycasting each cell against
+  `WORLD.colliders` — `rayBox`/`rayWorld` already provide the raycast. Sample it in the shader via
+  one `sampler2DArray` (25 layers) and multiply `radiance` by the stored visibility.
+  **No extra render passes, no extra shadow maps, one texture fetch.** This alone should transform
+  the lighting.
+- **(b) Per-light shadow maps in one atlas** — 12 lights × 512² in a 4×3 atlas of 2048×1536 = 12 MB
+  and **one** extra scene pass per frame. True soft shadows per lamp, but costly.
+- **(c) Screen-space shadow** (ray-march the depth buffer toward the light) — no extra geometry,
+  but only works for lights in view.
+
+**Do (a) or (c) first.** (a) is the best value in this whole document.
+
+### R2. **The 512² PBR atlas costs 2.3 SECONDS at load — 1024² costs only 3.0s**
+Measured: `createProceduralPBR(512,84417)` = **2275 ms**, `createProceduralPBR(1024,84417)`
+= **3040 ms**. Cost is dominated by the 4-octave value-noise sampling loop, **not** the texel count.
+→ **Raising the material atlas to 1024² is nearly free** (+765 ms on an already-2.3 s load). Do it.
+→ Separately, **2.3 s of frozen startup is itself a quality problem.** Options: Web Worker,
+generate the noise fields once at 256² and upsample (the finest octave is 4 texels wide anyway), or
+generate progressively (128² first, refine on Play). `materialsReady` is already a Promise — use it
+for a progress bar instead of a 2.3 s freeze.
+
+### R3. **Device headroom the code is not using** (measured on the build's own GL context)
+```
+maxTex: 8192    maxSamples: 4    maxArrayLayers: 2048    aniso: 16
+colorFloat: true    floatLinear: true    s3tc: true    astc: true
+```
+- `maxSamples: 4` → 4× MSAA is available (B4 is a code problem, not a device limit).
+- `aniso: 16` but the code uses `Math.min(4, MAX_ANISOTROPY_EXT)` → **12 of 16 taps unused.**
+  Raise to 8 or 16 — free quality on grazing floor/wall angles.
+- `s3tc: true`, `astc: true` → compressed textures available but the code uses **zero**
+  (`compressedTex: 0`). 512²×12-layer RGBA8 materials + 512²×12 relief ≈ 25 MB uncompressed; at
+  1024² that is ~100 MB. **Add an S3TC upload path** and the VRAM problem disappears — but the
+  payload must be embedded as base64, growing the single file. Pragmatic split: **S3TC for the
+  material array, keep relief uncompressed** (relief is read for bump + metal/cavity, and DXT5's
+  alpha channel can carry height).
+- `maxTex: 8192` → the 1024² screen atlas and 1024² decal atlas are well within budget.
+
+### R4. **Measured per-frame budget at Ultra, 960×540** (SwiftShader *software* rasteriser)
+```
+calls: 307–411      tri: 219,885–456,564      pts: 1792
+ms:    3.4–11.0      (first frame 155–162 ms = shader compile)
+archVerts: 25,743  (centrifuge 3936 · skyline 5610 · courtyard 1626 · bunker 2670 ·
+                     control 2202 · gantry 7911 · launch 1284 · links 504)
+archDraws: 1–3     archDrawnVerts: 18,897–23,073
+worldVerts: 86,448  groups: 103  nodes: 1,156  zones: 26
+```
+**3.4–11 ms per frame in a pure-software rasteriser at 960×540.** On a real GPU this is a fraction of
+a 16.7 ms budget — **enormous headroom** for more lights, more shadow work, higher resolution and a
+real bloom chain. The current tier ladder is far more conservative than the engine needs.
+Note `archDraws` is only 1–3 because `v8DrawArch` frustum-culls the 8 zones and merges contiguous
+runs — that culling works well.
+
+### R5. **The PolyArt zombie texture is only 256×256 RGB**
+Decoded from the embedded base64: `zombie texture size: (256, 256) RGB`. At close range on a high-res
+screen the zombies are the softest thing on screen while the world is procedurally sharp. This is an
+**asset** limitation, not a code one — it cannot be fixed without a bigger source texture. Note it in
+the changelog; consider a sharpening or detail-normal pass on the zombie material as a code-side
+mitigation.
+
+### R6. Confirmed working — do not touch
+- `v8Stats.lod` correctly reports 3 on Ultra, `archVerts: 25,743`, `particles: 1024` — the Ultra
+  architecture and particle pool **do** build when the render loop runs. (In the builder's first
+  headless probe `archVerts` was 0 and `lod` 1 for all tiers — an artifact of stubbing
+  `requestAnimationFrame`, so `v8BeforeRender` never ran. **Not a bug.**)
+- The zone culling in `v8DrawArch` (8 zones → 1–3 merged draw runs) works.
+- `polyZombieParts` / VAT: 6552×24×10 RGBA16F position + normal arrays, NEAREST-filtered, 24 frames
+  × 10 variants, PCA-compressed. Works.
+- `uV9Sharp` is written correctly (only when `uSpeed` is set on the post program — that is the
+  speed-smear path, and the sharpen is applied alongside it in `POST_FS`).
+- PNG export via `toDataURL` is safe because `preserveDrawingBuffer:false` and V9 exports inside the
+  same task that submitted the frame.
+- `rayWorld` also uses 1600 as its max distance — consistent with the projection far plane. If the far
+  plane changes, `rayWorld` must change too.
+
+---
+
 ## PART 1 — THE NINE DEFECTS (unchanged, now with builder-aligned patch sites)
 
 ### B1 — Ultra's 64 AO taps clamp to 48
@@ -222,18 +330,18 @@ The builder has already confirmed each of these exists. None is reachable by any
 
 | Cap | Current (verified) | Target | File / exact site |
 |---|---|---|---|
-| Dynamic lights | **12 of 25** | 16–24 | `sh/FS.glsl` `uLPos[12],uLColor[12]` / `uLPower[12],uLRadius[12]`; the `for(int i=0;i<12;i++)` loops (**two**: main path and zombie path); `base_min.js` `R=[E[0],…E.slice(1)….slice(0,11)]` + the `for(;R.length<12;)R.push(…)` padding. **All four must move together.** |
+| Dynamic lights | **12 of 25, and 11 of the 12 are UNSHADOWED (R1)** | 16–24 **plus per-light occlusion (R1a)** | `sh/FS.glsl` `uLPos[12],uLColor[12]` / `uLPower[12],uLRadius[12]`; the `for(int i=0;i<12;i++)` loops (**two**: main path and zombie path); `base_min.js` `R=[E[0],…E.slice(1)….slice(0,11)]` + the `for(;R.length<12;)R.push(…)` padding. **All four must move together.** |
 | Shadow filter | 9-tap PCF, `sum/9.` | 16-tap Vogel disc; PCSS on key light | `sh/FS.glsl` `shadowPCF()` (`sampler2DShadow`, hardware compare) |
 | Key shadow frustum | `perspective(2.3,1,.12,52)` — a 132° **point-light** cone on the brightest lamp, not a sun | 3–4 cascades around the camera | `base_min.js` `render()`; also `lookAt(M.p,c,…)` and the `keySource`/`keyFocus` refit logic. **Biggest shadow-crispness win.** |
 | Flashlight shadow | re-rendered **every frame** at 2048² on Ultra; **no architecture in it** | add architecture to the `'fill'` map | `base_min.js` `(k>0||this.shadowDirty)&&this.shadowPass(this.shadow,P,e)`; `v8DrawArch` only draws into the `'key'` map (`this.v8Pass==='key'&&v8Lod()>=1`) |
-| Material atlas | 512², 12 layers, **4× aniso** | 1024², 8–16× aniso — **but see N6 (VRAM)** | `base_min.js` `createMaterials()`: `createProceduralPBR(512,84417)`, `texImage3D(TEXTURE_2D_ARRAY,0,RGBA8,…)`, `Math.min(4,MAX_ANISOTROPY_EXT)` |
+| Material atlas | 512², 12 layers, **4× aniso of 16 available**, **2.3 s load cost** | **1024² — only +765 ms (R2)**, aniso 8–16, S3TC/ASTC (R3) | `base_min.js` `createMaterials()`: `createProceduralPBR(512,84417)`, `texImage3D(TEXTURE_2D_ARRAY,0,RGBA8,…)`, `Math.min(4,MAX_ANISOTROPY_EXT)` |
 | Texture noise | **4-octave value noise** (4/16/64/128); finest octave = 4-texel features at 512² | gradient/simplex, ≥6 octaves | `base_min.js` `createProceduralPBR()`: `for(let t of[4,16,64,128])` |
 | Normal maps | **none** — `uRelief` R=height, converted by `derivativeRelief` | real tangent-space normal array | `sh/FS.glsl`; add a third texture array alongside `uMaterials`/`uRelief` |
 | Bump fade | **off beyond 38 m** | remove/extend | `sh/FS.glsl` `float micro=1.-smoothstep(16.,38.,length(uEye-vP));` |
 | Ambient / IBL | **none** — `hemi=mix(vec3(.19,.235,.28),uAmbientColor,…)`, `ambient=.15` | 32² irradiance + 128² prefiltered cube | `sh/FS.glsl` |
 | Gloss reflection | **fake 2-colour analytic** | cubemap / SSR | `sh/FS.glsl` `v8env=mix(vec3(.012,.018,.026),vec3(.09,.12,.16),smoothstep(-.15,.55,v8R.y))` |
 | Sky | **2-colour vertical gradient** | cubemap / stars / clouds | `sh/FS.glsl` `mix(vec3(.035,.050,.068),vec3(.008,.018,.033),horizon)`, `horizon=clamp((vP.y+9.)/180.,0.,1.)` |
-| "Bloom" | **4 taps, radius 6px, threshold .85, weight .025** | real chain: bright-pass → 4–5 downsample/blur → upsample | `sh/POST_FS.glsl` — V12–V15 added a lot of emissive content (RGB strobe lamps, screen panels, cyan/amber strips, rocket fire) that a real chain would transform |
+| "Bloom" | **4 taps, radius 6px, threshold .85, weight .025** | real chain: bright-pass → 4–5 downsample/blur → upsample — **headroom exists (R4: 3.4–11 ms/frame in software)** | `sh/POST_FS.glsl` — V12–V15 added a lot of emissive content (RGB strobe lamps, screen panels, cyan/amber strips, rocket fire) that a real chain would transform |
 | AO depth | floor clamped to **.34** | .22 on Ultra | `sh/AO_FS.glsl` (N4) |
 | Volumetric reach | ray length capped at **34 units**, density fixed **.013** | tier-scaled cap + density | `sh/POST_FS.glsl` (N3) |
 | Fog | clamped **.72** | allow denser + height fog | `sh/FS.glsl` `clamp(1.-exp(-length(uEye-vP)*uFog*.65),0.,.72)` |
@@ -267,18 +375,31 @@ The builder has already confirmed each of these exists. None is reachable by any
 
 ## PART 5 — ORDER OF WORK
 
-**A. Correctness first.** B1, B2, B3, B4-revert, B5, B6, B7, B8, B9 + N1 (decal mipmaps),
-N4 (AO floor), N5 (DPR-aware dust), N9→B2 (ray strength). All are small count-asserted replacements
+**A0. Light occlusion (R1a) — do this FIRST, ahead of everything else.** 49% of light contributions
+come from lamps behind walls and the shader applies them at full strength. It is the single largest
+visual defect in the game, and the fix is a 132 KB baked texture plus one texture fetch — no extra
+render passes, no extra shadow maps, no per-frame cost. It will change the look of every room in the
+facility. Everything below is incremental polish; this is the structural fix.
+
+**A. Correctness.** B1, B2, B3, B4-revert, B5, B6, B7, B8, B9 + N1 (decal mipmaps),
+N4 (AO floor), N5 (DPR-aware dust), N3 (volumetric reach). All are small count-asserted replacements
 against `sh/*.glsl` and `base_min.js`. **Do these before any feature work** — otherwise you are
 debugging visual regressions against a broken baseline.
 
 **B. Real MSAA** (or revert `antialias` to `!1` and defer).
 
 **C. Raise the caps**, highest impact first:
-C1 cascaded key shadows → C2 16-tap/PCSS → C3 lights 12→24 → C4 `FS_R2` as the Ultra shading variant
-→ C5 normal maps + better noise → C6 IBL → C7 real sky → C8 multi-pass bloom → C9 the rest of the table.
+C1 material atlas → 1024² (+765 ms only) + aniso 8–16 · C2 per-light shadow atlas or screen-space
+shadows (R1b/R1c) · C3 cascaded key shadows (replace the 132° point-light cone) ·
+C4 16-tap/PCSS · C5 lights 12→24 · C6 `FS_R2` as the Ultra shading variant ·
+C7 normal maps + better noise · C8 IBL · C9 real sky · C10 multi-pass bloom · C11 the rest of the table.
+**There is headroom for all of it** — R4 measured 3.4–11 ms/frame in a *software* rasteriser at
+960×540, against a 16.7 ms budget on real hardware.
 
 **D. TAA + the new user-facing rows.**
+
+**E. Startup:** R2's 2.3 s material-generation freeze → Web Worker or progressive generation with
+the existing `materialsReady` promise driving a progress bar.
 
 ---
 
@@ -343,15 +464,21 @@ the V10/V11 recorded-audio pipeline.
 
 ## PART 9 — ONE PARAGRAPH
 
-Ultra exists and is wired, but nine defects nullify it: AO taps clamp at 48, the volumetric ray
-strength is overwritten before it reaches the GPU, the V9 resolution mode 1 is a dead branch, MSAA
-lands on the wrong framebuffer, and shadow maps / the screen atlas / the particle pool are all frozen
-at boot while localStorage overwrites the Ultra default. Three more cheap wins sit in the shader
-extract: decals and in-world screens have **no mipmaps**, the AO floor is clamped to .34 so contact
-shadows can never darken, and dust motes are clamped to 2.8 device pixels so they vanish on HiDPI.
-Fix those twelve, then attack the tier-invariant caps — 12 lights of 25, a 132° point-light shadow
-cone with no cascades, 9-tap PCF, 512² 4-octave value-noise materials with no normal maps, no IBL,
-a 2-colour sky, a 4-tap in-pass "bloom", 88° FOV, and a 0.64 resolution floor that only ever
-decreases. **And use the already-wired `FS_R2` slot as the Ultra shading variant** — it is currently
-an alias of FS, so it is the cleanest way to give Ultra different shading while keeping the other
-three tiers byte-identical. Those caps, not the quality ladder, are the ceiling.
+Start with the structural fix: **only 1 of the 12 sampled lights is shadowed**, so 49% of light
+contributions come from lamps behind walls and are applied at full strength (measured: 45% of lit
+sample points leak >25%, p90 leak = 100%). Bake a per-light XZ occlusion grid at load (132 KB, one
+texture fetch) and the facility stops looking flat. Then the nine defects that nullify the Ultra tier:
+AO taps clamp at 48, the volumetric ray strength is overwritten before it reaches the GPU, the V9
+resolution mode 1 is a dead branch, MSAA lands on the wrong framebuffer, and shadow maps / the screen
+atlas / the particle pool are all frozen at boot while localStorage overwrites the Ultra default.
+Three more cheap wins sit in the shader extract: decals and in-world screens have **no mipmaps**, the
+AO floor is clamped to .34 so contact shadows can never darken, and dust motes are clamped to 2.8
+device pixels so they vanish on HiDPI. After that, raise the tier-invariant caps — 12 lights of 25,
+a 132° point-light shadow cone with no cascades, 9-tap PCF, 512² 4-octave value-noise materials with
+no normal maps, no IBL, a 2-colour sky, a 4-tap in-pass "bloom", 88° FOV, and a 0.64 resolution floor
+that only ever decreases. **Use the already-wired `FS_R2` slot as the Ultra shading variant** — it is
+currently an alias of FS, so it is the cleanest way to give Ultra different shading while keeping the
+other three tiers byte-identical. And there is room for all of it: the build renders in **3.4–11 ms
+at 960×540 in a pure-software rasteriser**, the device reports `maxSamples:4` and `aniso:16` (the code
+uses 4 of the 16), and `s3tc`/`astc` are available but unused. Those caps, not the quality ladder,
+are the ceiling.
