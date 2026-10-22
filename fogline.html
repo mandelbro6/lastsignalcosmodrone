@@ -5,173 +5,104 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>FOGLINE — Bodycam // Sector 7</title>
 <meta name="theme-color" content="#050607">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23050607'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23e8e8e2' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='2.6' fill='%23ff6a1a'/%3E%3C/svg%3E">
 <style>
-  html, body { margin: 0; height: 100%; background: #050607; overflow: hidden; overscroll-behavior: none; }
-  body { -webkit-user-select: none; user-select: none; touch-action: none; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: #050607; }
-  #ui-root { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
-  #boot { position: fixed; inset: 0; display: grid; place-items: center; color: #9aa3a0; font: 12px ui-monospace, Menlo, Consolas, monospace; letter-spacing: .2em; background: #050607; z-index: 5; }
-  #err { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 99; color: #ff8a80; font: 12px ui-monospace, Menlo, monospace; white-space: pre-wrap; display: none; background: rgba(0,0,0,.8); padding: 10px; border: 1px solid #f44; }
-  #overlay { position: fixed; inset: 0; z-index: 100; pointer-events: none; }
-  #vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 70%, rgba(0,0,0,0.7) 100%); }
-  #scanlines { position: absolute; inset: 0; background: linear-gradient(transparent 50%, rgba(0,0,0,0.03) 50%); background-size: 100% 4px; opacity: 0.3; }
-  #noise { position: absolute; inset: 0; background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A95DwADhgGJ++hdwAAAABJRU5ErkJggg=='); opacity: 0.1; }
-  #ca-effect { position: absolute; inset: 0; mix-blend-mode: color-dodge; pointer-events: none; z-index: 98; opacity: 0; }
-  #hud { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 11; pointer-events: none; }
-  #hud .hud-slot { position: absolute; background: rgba(0,0,0,0.6); color: #9aa3a0; font: 10px ui-monospace, Menlo, monospace; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.2); }
-  #hud .time { top: 10px; left: 10px; }
-  #hud .health { top: 10px; left: 120px; }
-  #hud .ammo { bottom: 10px; left: 10px; }
-  #hud .alert { position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%); background: rgba(184,66,51,0.9); color: white; font: 14px ui-monospace, Menlo, monospace; padding: 8px 16px; border: 1px solid #f44; text-align: center; }
-  .cam-overlay { position: absolute; top: 50%; left: 50%; width: 90%; height: 80%; border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; transform: translate(-50%, -50%); pointer-events: none; z-index: 99; }
+  html,body{margin:0;height:100%;background:#050607;overflow:hidden}
+  body{-webkit-user-select:none;user-select:none;touch-action:none}
+  #game{position:fixed;inset:0;width:100%;height:100%;display:block;background:#050607;z-index:1}
+  #hud{position:fixed;top:10px;left:10px;z-index:10;font:10px/1 monospace;color:#9aa3a0}
+  #hud div{background:rgba(0,0,0,.6);padding:4px 8px;border:1px solid rgba(255,255,255,.2)}
+  #hud .time{left:10px}
+  #hud .health{left:120px}
+  #hud .ammo{bottom:10px}
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
-<div id="boot">INITIALIZING BODY-WORN VIDEO …</div>
-<div id="ui-root"></div>
-<pre id="err"></pre>
-<div id="overlay">
-  <div id="vignette"></div>
-  <div id="scanlines"></div>
-  <div id="noise"></div>
-  <div id="ca-effect"></div>
-  <div id="hud">
-    <div class="hud-slot time">00:00</div>
-    <div class="hud-slot health">HEALTH: 100%</div>
-    <div class="hud-slot ammo">AMMO: — / —</div>
-  </div>
+<div id="hud">
+  <div class="time">00:00</div>
+  <div class="health">HEALTH: 100%</div>
+  <div class="ammo">AMMO: 0 / 0</div>
 </div>
 <script>
-(function() {
-  const canvas = document.getElementById('game');
-  const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
-  if (!gl) { document.getElementById('boot').textContent = 'WEBGL UNAVAILABLE'; return; }
-  
-  let w = window.innerWidth;
-  let h = window.innerHeight;
-  let time = 0;
-  let health = 100;
-  let ammo = 0;
-  let maxAmmo = 0;
-  
-  canvas.width = w;
-  canvas.height = h;
-  gl.viewport(0, 0, w, h);
-  gl.clearColor(0.02, 0.02, 0.02, 1);
-  
-  const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vertexShader, `
-    attribute vec2 aPos;
-    void main() { gl_Position = vec4(aPos, 0, 1); }
-  `);
-  gl.compileShader(vertexShader);
-  
-  const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(fragmentShader, `
-    precision highp float;
-    uniform float uTime;
-    uniform vec2 uResolution;
-    
-    vec3 bodycam(vec2 uv) {
-      uv -= 0.5;
-      uv *= 1.1 + 0.1 * sin(uTime * 3.0);
-      
-      float ca = 0.003;
-      vec2 caR = uv;
-      caR.x += ca * sin(uTime * 10.0 + uv.y * 50.0);
-      caR.y += ca * cos(uTime * 10.0 + uv.x * 50.0);
-      
-      vec3 col = vec3(0.08, 0.03, 0.01);
-      col = mix(col, vec3(0.12, 0.06, 0.02), uv.x * uv.x);
-      
-      float vignette = pow(16.0 * length(uv), 2.3);
-      col *= 1.0 - vignette;
-      
-      float scanline = sin((uv.y + uTime * 10.0) * 400.0) * 0.05 + 0.95;
-      col *= scanline;
-      
-      float noise = fract(sin(dot(uv, vec2(12.9898, 78.233)) + uTime * 10.0) * 0.4375);
-      col += noise * 0.02;
-      
-      float glitch = sin(uTime * 5.0) * 0.5 + 0.5;
-      col += vec3(glitch * 0.01, glitch * 0.005, glitch * 0.02);
-      
-      return col;
-    }
-    
-    void main() {
-      vec2 uv = gl_FragCoord.xy / uResolution.xy;
-      gl_FragColor = vec4(bodycam(uv), 1.0);
-    }
-  `);
-  gl.compileShader(fragmentShader);
-  
-  const program = gl.createProgram();
-  gl.attachShader(program, vertexShader);
-  gl.attachShader(program, fragmentShader);
-  gl.linkProgram(program);
-  gl.useProgram(program);
-  
-  const vao = gl.createVertexArray();
-  gl.bindVertexArray(vao);
-  
-  const quad = new Float32Array([
-    -1, -1, 1, -1, -1, 1,
-    1, -1, 1, 1, -1, 1
-  ]);
-  const vbo = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-  gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
-  
-  const posLoc = gl.getAttribLocation(program, 'aPos');
-  gl.enableVertexAttribArray(posLoc);
-  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-  
-  const timeLoc = gl.getUniformLocation(program, 'uTime');
-  const resLoc = gl.getUniformLocation(program, 'uResolution');
-  
-  function render() {
-    time += 1/60;
-    gl.uniform1f(timeLoc, time);
-    gl.uniform2f(resLoc, w, h);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-    requestAnimationFrame(render);
-  }
-  
-  render();
-  
-  const healthSlot = document.querySelector('.hud-slot.health');
-  const ammoSlot = document.querySelector('.hud-slot.ammo');
-  const timeSlot = document.querySelector('.hud-slot.time');
-  
-  setInterval(() => {
-    const t = time;
-    const mins = Math.floor(t/60) % 60;
-    const secs = Math.floor(t) % 60;
-    timeSlot.textContent = `${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
-    
-    if (Math.random() < 0.02) health = Math.max(0, health - Math.floor(Math.random()*10));
-    if (Math.random() < 0.1) ammo = Math.min(maxAmmo, ammo + Math.floor(Math.random()*30));
-    
-    healthSlot.textContent = `HEALTH: ${health}%`;
-    ammoSlot.textContent = `AMMO: ${ammo} / ${maxAmmo}`;
-  }, 1000);
-  
-  window.addEventListener('resize', () => {
-    w = window.innerWidth;
-    h = window.innerHeight;
-    canvas.width = w;
-    canvas.height = h;
-    gl.viewport(0, 0, w, h);
-  });
-  
-})();
-document.getElementById('boot').style.opacity = '0';
-document.getElementById('boot').style.transition = 'opacity 0.5s';
-setTimeout(() => document.getElementById('boot').classList.add('hidden'), 500);
+const c=document.getElementById('game');
+const gl=c.getContext('webgl2');
+let w=c.width=c.clientWidth;
+let h=c.height=c.clientHeight;
+gl.viewport(0,0,w,h);
+gl.clearColor(0.02,0.02,0.02,1);
+
+const vs=gl.createShader(gl.VERTEX_SHADER);
+gl.shaderSource(vs,'attribute vec2 p;void main(){gl_Position=vec4(p,0,1)}');
+gl.compileShader(vs);
+
+const fs=gl.createShader(gl.FRAGMENT_SHADER);
+gl.shaderSource(fs,`precision highp float;
+uniform float t;
+uniform vec2 r;
+void main(){
+  vec2 v=gl_FragCoord.xy/r-0.5;
+  float s=sin(t*3.0);
+  v*=1.0+0.1*s;
+  float ca=0.003;
+  v.x+=ca*sin(t*10.0+v.y*50.0);
+  v.y+=ca*cos(t*10.0+v.x*50.0);
+  vec3 col=vec3(0.08,0.03,0.01);
+  col=smoothstep(col,col*1.3,abs(v.x));
+  float vi=pow(16.0*length(v),2.3);
+  col*=1.0-vi;
+  col*=sin((v.y+t*10.0)*400.0)*0.05+0.95;
+  col+=fract(sin(dot(v,vec2(12.9898,78.233))+t*10.0)*43758.5453)*0.02;
+  gl_FragColor=vec4(col,1.0);
+}`);
+gl.compileShader(fs);
+
+const p=gl.createProgram();
+gl.attachShader(p,vs);
+gl.attachShader(p,fs);
+gl.linkProgram(p);
+gl.useProgram(p);
+
+const a=gl.createVertexArray();
+gl.bindVertexArray(a);
+const b=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,b);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);
+const l=gl.getAttribLocation(p,'p');
+gl.enableVertexAttribArray(l);
+gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
+
+let t=0;
+const tLoc=gl.getUniformLocation(p,'t');
+const rLoc=gl.getUniformLocation(p,'r');
+
+function raf(){
+  t+=gl.getContext().getParameter(gl.TIME) || 1/60;
+  gl.uniform1f(tLoc,t);
+  gl.uniform2f(rLoc,w,h);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.drawArrays(gl.TRIANGLES,0,6);
+  requestAnimationFrame(raf);
+}
+raf();
+
+const time=document.querySelector('.time');
+const hlth=document.querySelector('.health');
+const ammo=document.querySelector('.ammo');
+let health=100;
+
+setInterval(()=>{
+  const m=Math.floor(t/60)%60, s=Math.floor(t)%60;
+  time.textContent=`${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+  if(Math.random()<0.02)health=Math.max(0,health-Math.floor(Math.random()*10));
+  hlth.textContent=`HEALTH: ${health}%`;
+  ammo.textContent=`AMMO: ${Math.floor(Math.random()*30)} / 0`;
+},1000);
+
+window.addEventListener('resize',()=>{
+  w=c.width=c.clientWidth;
+  h=c.height=c.clientHeight;
+  gl.viewport(0,0,w,h);
+});
 </script>
 </body>
 </html>
