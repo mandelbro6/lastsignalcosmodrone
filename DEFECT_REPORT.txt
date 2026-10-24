@@ -1,0 +1,101 @@
+DEFECT_REPORT
+=============
+
+DEFECT ID: L1
+Severity: MAJOR (FATAL if not fixed)
+Location: Line 79 of original file (Cloudflare snippet)
+Reproduction: Load page in browser - Cloudflare bot challenge blocks WebGL context creation
+Expected: WebGL 2 context available, game renders
+Actual: WebGL context fails with "Rendering unavailable" error
+Root Cause: Injected Cloudflare bot-challenge script creates hidden iframe that loads /cdn-cgi/challenge-platform/scripts/jsd/main.js
+Fix: Removed entire Cloudflare script block and associated iframe
+Status: FIXED
+
+DEFECT ID: L2
+Severity: MAJOR (FATAL for enemy spawning)
+Location: tick function override, lines ~3997550-3997700 in minified script
+Reproduction: Spawn enemies in a 90-second seeded run from spawn
+Expected: All spawns have valid floorAt() result and are within playableExtent
+Actual: 5/5 spawns had floorAt()==null, 2/5 were outside playableExtent (from briefing measurements)
+Root Cause: Enemy spawn code at y:0 with no floorAt() or playableExtent validation
+  Original code:
+    if(alive<24&&b.spawned<b.total){
+      let ang=Math.random()*6.28,dist=35+Math.random()*25;
+      s.spawns.push({...,x:s.p.x+dist*Math.cos(ang),y:0,z:s.p.z+dist*Math.sin(ang),...})
+    }
+  y:0 hardcoded with no ground validation
+Fix: Added validation loop with floorAt() and playableExtent checks:
+    if(alive<24&&b.spawned<b.total){
+      let e=0;while(e<20&&alive<24&&b.spawned<b.total){
+        e++;
+        let ...X=s.p.x+dist*Math.cos(ang),Z=s.p.z+dist*Math.sin(ang),F=floorAt(X,Z);
+        if(!F||X<WORLD.playableExtent.x[1]||X>WORLD.playableExtent.x[0]||
+           Z<WORLD.playableExtent.z[0]||Z>WORLD.playableExtent.z[1])continue;
+        s.spawns.push({...,x:X,y:F.y,z:Z,...})
+      }
+    }
+Status: FIXED
+
+DEFECT ID: L3
+Severity: MINOR (informational)
+Location: WORLD extent property definitions
+Reproduction: Survey function returns extent values
+Expected: extent matches playableExtent scaling
+Actual: extent:{x:[-52,52],y:[-2,16],z:[-57,57]} is UNSCALED; playableExtent is SCALED (divided by 0.39)
+- playableExtent:{x:[-49/.39,49/.39],...z:[...20/.39]}
+Root Cause: extent property preserved from original model dimensions; playableExtent derived from scaled dimensions
+Finding: extent is only used in survey() function for informational display, never for gameplay bounds checking
+Action: Report only - no change needed (extent only in informational output)
+Status: REPORTED
+
+DEFECT ID: L4
+Severity: MINOR (informational)
+Location: BUILD and geometryRevision strings
+Reproduction: Check build string and geometryRevision property
+Expected: Central-spawn matching geographyRev
+Actual: BUILD="20.5-PHASE20-FUTURISTIC-CITY-CENTRAL-SPAWN-R5"
+        geometryRevision="futuristic-city-sketchfab-model-r5-central-spawn"
+But actual spawn position: South Transit Station shelter at (0.5/.39, 0, -44.5/.39) = ~(1.28, 0, -114.1)
+11.5 u from south playable edge, ~73 u from C-17
+Root Cause: Build strings reference "central-spawn" but spawn is in south shelter
+Action: Report only - relocation is separate phase per briefing
+Status: REPORTED
+
+DEFECT ID: L5
+Severity: NEEDS INVESTIGATION
+Location: makeStateBody function (legacy pickup positions)
+Reproduction: Check pickup position definitions vs player position scaling
+Expected: Legacy pickups divided by 0.39 for scaling
+Actual: Player positions use .39 division (e.g., x:.5/.39, z:-44.5/.39)
+Legacy pickups do not divide by 0.39 - need verification of impact
+Finding: Requires investigation of pickup geometry and whether unscaled positions cause pickup to be unreachable
+Status: NEEDS DECISION
+
+DEFECT ID: L6
+Severity: COSMETIC
+Location: Pause panel HTML, line 43
+Reproduction: Enter pause menu in game
+Expected: Controls show correct key bindings
+Actual: Shows "Place turbine / turret / trap" → "Z / T / G"
+  But code uses: Z=turbine, T=turret, X=trap, G=grenade
+Root Cause: Copy-paste error in pause panel text
+Fix: Changed "Z / T / G" to "Z / T / X"
+Status: FIXED
+
+DEFECT ID: L7
+Severity: NONE (NOT A DEFECT)
+Location: frame() function
+Reproduction: Check frame() function structure
+Expected: try/catch around render operations
+Actual: frame() contains try{renderer?.render(S),...}catch(e){...}
+Finding: frame() already has try/catch - NOT a defect
+Status: NOT A DEFECT
+
+DEFECT ID: L8
+Severity: NONE (NOT A DEFECT)
+Location: JavaScript references to party-* DOM IDs
+Reproduction: Check for party-* DOM elements in HTML
+Expected: party-* elements would be missing (unreachable code)
+Actual: party-lobby, party-room, party-hud, party-roster etc. ARE present in HTML
+Finding: party-* DOM elements exist - NOT a defect
+Status: NOT A DEFECT

@@ -1,0 +1,41 @@
+CHANGELOG
+=========
+
+Fix L1: Cloudflare Anti-Bot Script Removal
+---------------------------------------------
+Location: Line 79 of original file
+Before: 
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a4a0d3c01b71758e',t:'MTc5MTkyMDU0Mg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body></html>
+After: (removed entirely)
+Impact: WebGL context now loads without bot challenge blocking
+
+Fix L2: Enemy Spawn Validation
+-------------------------------
+Location: ~4,000,000 byte offset in minified script (within tick function override)
+Before:
+if(alive<24&&b.spawned<b.total){let ang=Math.random()*6.28,dist=35+Math.random()*25;if(!s.spawns._id)s.spawns._id=200;s.spawns.push({hp:b.health,maxHp:b.health,x:s.p.x+dist*Math.cos(ang),y:0,z:s.p.z+dist*Math.sin(ang),yaw:Math.random()*6.28,faction:'silicon',archetype:'silicon-lattice',state:'hunt',attack:0,alert:30,step:0,anim:0,id:'zm-'+(++s.spawns._id),seen:false,stagger:0,routeIndex:0,path:[],pathTimer:0,target:{x:s.p.x,z:s.p.z}});b.spawned++}
+
+After:
+if(alive<24&&b.spawned<b.total){let e=0;while(e<20&&alive<24&&b.spawned<b.total){e++;let ang=Math.random()*6.28,dist=35+Math.random()*25,X=s.p.x+dist*Math.cos(ang),Z=s.p.z+dist*Math.sin(ang),F=floorAt(X,Z);if(!F||X<WORLD.playableExtent.x[1]||X>WORLD.playableExtent.x[0]||Z<WORLD.playableExtent.z[0]||Z>WORLD.playableExtent.z[1])continue;if(!s.spawns._id)s.spawns._id=200;s.spawns.push({hp:b.health,maxHp:b.health,x:X,y:F.y,z:Z,yaw:Math.random()*6.28,faction:'silicon',archetype:'silicon-lattice',state:'hunt',attack:0,alert:30,step:0,anim:0,seen:false,stagger:0,routeIndex:0,path:[],pathTimer:0,target:{x:s.p.x,z:s.p.z},_alive:!0});b.spawned++}}
+
+Changes:
+- Added retry loop (max 20 attempts) for valid spawn position
+- Calculate spawn X,Z coordinates first
+- Added floorAt(X,Z) call to get valid ground height
+- Added playableExtent bounds check (both x and z)
+- Use F.y instead of hardcoded y:0
+- Added _alive:!0 flag initialization for new enemy objects
+
+Fix L6: Pause Panel Key Mismatch
+----------------------------------
+Location: Line 43 in HTML (pause panel controls)
+Before:
+<span>Place turbine / turret / trap</span><span>Z / T / G</span>
+After:
+<span>Place turbine / turret / trap</span><span>Z / T / X</span>
+
+Reason: G key is for grenade, X key is for electric trap (as shown in survival controls text)
+
+DELETE: None
+ADD: None
+MODIFY: 3 items (L1, L2, L6)

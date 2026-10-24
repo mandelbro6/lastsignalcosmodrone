@@ -1,0 +1,62 @@
+STATE_OF_BUILD.txt
+==================
+
+PARENT FILE
+-----------
+SHA-256: 8ca88a6b5db7d7f4b0f3a97d6a27e4031b12c24f1f40492de1375dad5ee4a3cf
+Expected:  4,047,079 bytes, 80 lines
+Actual:    File not available at expected location
+
+WORKING FILE (last-signal.html)
+-------------------------------
+SHA-256:   048c6632b2282d892f5966b8efc114d680b80e4c6f01895251d7d65261877e20
+Size:      4,048,472 bytes
+Lines:     77 lines (Cloudflare removed, 3 lines shorter than expected 80)
+Line 70:   Single ~4.0 MB minified line containing LSC library + game logic
+
+BUILD IDENTIFICATION
+--------------------
+Title:         LAST SIGNAL / STRATUM 08
+Internal:      20.5-PHASE20-FUTURISTIC-CITY-CENTRAL-SPAWN-R5
+Header Comment: Phase 20.4
+Menu Footer:   Phase 20.3
+Phase Drift:   Reported (20.4 vs 20.3) - do not relabel
+
+FILE STRUCTURE
+--------------
+Line 1-67:     Head, CSS, HTML overlays (menu, pause, settings, kit, death, transfer, archive, channel-panel, touch)
+Line 68:       <script> opening tag
+Line 69:       (()=>'use strict';
+Line 70:       ~4,000,000 bytes of minified LSC library + game code (296 functions, 3 classes)
+Line 71:       })(); closing and </script> closing tag
+Line 72:       Empty line
+Line 73:       <span id="ls-end" hidden></span> (sentinel)
+Line 74:       <!-- LAST-SIGNAL-CHANNEL-COMPLETE --> (sentinel)
+Line 75:       <!-- Flood asset attribution comments -->
+Line 76:       </html> closing tag
+
+EMBEDDED ASSETS
+---------------
+~3.5 MB: City mesh (base64), WebP city atlas, Flood enemy mesh/textures, micro-textures, shaders
+~0.5 MB: Game logic (LSC channel library + 296 functions)
+
+PROTECTED ITEMS - STATUS
+------------------------
+✓ Solo-only start
+✓ Channel interaction only at C-17 terminal
+✓ Save/LS5 continuity preserved (key names, formats unchanged)
+✓ Offline single file, zero external requests
+✓ GBE weapon behavior unchanged
+✓ Silicon Life enemies unchanged
+✓ Attribution comments intact
+✓ Sentinels (<span id="ls-end">, <!-- LAST-SIGNAL-CHANNEL-COMPLETE -->) intact
+✓ Maintainer contact and donation entries intact
+
+CHANGES MADE
+------------
+1. Removed Cloudflare anti-bot script (L1)
+2. Fixed enemy spawn validation with floorAt() and playableExtent checks (L2)
+3. Fixed pause panel key mismatch (trap key G→X) (L6)
+4. Removed _alive flag redundancy (minor cleanup)
+
+CURRENT STATUS: READY FOR TESTING

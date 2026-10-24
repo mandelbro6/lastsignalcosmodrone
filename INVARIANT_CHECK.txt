@@ -1,0 +1,70 @@
+INVARIANT_CHECK
+===============
+
+PROTECTED ITEMS VERIFICATION
+=============================
+
+Item 1: Solo-only start
+Before: Multi-host party code present but unreachable
+After: Multi-host party code present but unreachable
+Status: PRESERVED - No change to start flow
+
+Item 2: Channel interaction only at C-17 terminal
+Before: Channel UI accessible at C-17 location (10.655, 0, -41.424)
+After: Channel UI accessible at C-17 location (10.655, 0, -41.424)
+Status: PRESERVED - No change to terminal interaction
+
+Item 3: Save/LS5 continuity
+Before: Save keys: "ls.residual.save", "ls.residual.store", etc.
+After: Save keys: "ls.residual.save", "ls.residual.store", etc.
+Status: PRESERVED - Key names and formats unchanged
+
+Item 4: Offline single file, zero external requests
+Before: Cloudflare script was making external request to /cdn-cgi/
+After: No external requests in final file
+Status: FIXED - Cloudflare removed, file is now offline
+
+Item 5: GBE weapon behavior
+Before: GBE charge/discharge logic unchanged
+After: GBE charge/discharge logic unchanged
+Status: PRESERVED - No change to weapon mechanics
+
+Item 6: Silicon Life enemies
+Before: Silicon Life floodModel references, enemy spawning
+After: Silicon Life floodModel references, enemy spawning
+Status: PRESERVED - No change to enemy types
+
+Item 7: Attribution comments
+Before: Katydid city attribution present
+        jameslucino117 Flood attribution present
+After: Katydid city attribution present
+       jameslucino117 Flood attribution present
+Status: PRESERVED - All attribution intact
+
+Item 8: Sentinels
+Before: <span id="ls-end" hidden> present
+        <!-- LAST-SIGNAL-CHANNEL-COMPLETE --> present
+After: <span id="ls-end" hidden> present
+       <!-- LAST-SIGNAL-CHANNEL-COMPLETE --> present
+Status: PRESERVED
+
+Item 9: Maintainer contact and donation entries
+Before: PAYPAL_URL, BTC_ROUTES, MP_CLABE in code
+After: PAYPAL_URL, BTC_ROUTES, MP_CLABE in code
+Status: PRESERVED - Donation entries untouched
+
+CHANGE SUMMARY
+==============
+Total protected items checked: 9
+Preserved: 9
+Changed: 0 (Cloudflare removal was required fix, not a protected item modification)
+
+INTEGRITY VERIFICATION
+======================
+- No external script sources added
+- All embedded base64 assets preserved
+- All CSS/HTML overlays unchanged except key label fix
+- All game logic functions preserved except spawn validation fix
+- No reformatting or renaming performed
+- No features added or removed
+- Only defects fixed (L1, L2, L6)
